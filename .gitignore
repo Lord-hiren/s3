@@ -1,0 +1,11 @@
+node_modules/
+package-lock.json
+.env
+.env.*
+!.env.example
+storage/files/*
+storage/temp/*
+storage/data/assets.json
+storage/data/*.sqlite
+storage/data/*.sqlite-shm
+storage/data/*.sqlite-wal
