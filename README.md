@@ -2,7 +2,13 @@
 
 `s3` is an open-source asset storage app with a single-port dashboard and API.
 
-It runs the backend and frontend together on the same port, stores metadata in SQLite, serves public asset URLs, and supports authenticated uploads with web sessions or per-user API keys.
+It runs the backend and frontend together on the same port, stores metadata in SQLite, serves public asset URLs, and supports authenticated uploads with web sessions or bearer tokens.
+
+It uses SQLite3 through the `sqlite3` package.
+
+Recommended Node versions:
+- `22`
+- `24`
 
 ## Features
 
@@ -10,12 +16,13 @@ It runs the backend and frontend together on the same port, stores metadata in S
 - direct HTML, CSS, and JavaScript frontend
 - SQLite for users, sessions, and asset metadata
 - Open Sans UI
-- public file URLs for read access
-- admin-managed users
+- admin login and user management
+- temporary `SECRET_KEY` support for external project integration
 - unique API key for every user
 - asset grid with modal preview
 - Shuffle.js filtering
 - password change and admin password reset
+- public file URLs for read access after upload
 
 ## Quick Start
 
@@ -43,56 +50,74 @@ If the email already exists in SQLite, the app keeps that user.
 
 1. Install dependencies with `npm install`
 2. Copy `.env.example` to `.env`
-3. Update admin credentials and base URL if needed
-4. Start the app with `npm run dev`
-5. Sign in at `/login`
-6. Add users from the dashboard if you want extra upload accounts
+3. Set `SECRET_KEY` to a strong private token for temporary integration use
+4. Update admin credentials and base URL if needed
+5. Start the app with `npm run dev`
+6. Sign in at `/login`
+7. Add users from the dashboard if you want extra upload accounts
+
+## Temporary Integration Flow
+
+Current intended flow:
+
+1. Add this project to a user server and run it
+2. Login with the default admin
+3. Add users if needed, or use the admin integration token for now
+4. In the other project, send `Authorization: Bearer <SECRET_KEY>`
+5. The `s3` app verifies that token and allows asset create, update, delete, and protected reads
+6. Later, when full user integration is ready, `SECRET_KEY` can be removed from the external flow
 
 ## Auth
 
-The app supports two access patterns:
+The app currently supports:
 
 1. Dashboard login
 - email + password
 - creates an HTTP-only session cookie
 
-2. API uploads
+2. Temporary integration token
+- send `Authorization: Bearer <SECRET_KEY>`
+- mainly for external project asset API integration
+
+3. User API key auth
 - send `Authorization: Bearer <api_key>`
-- each user gets a unique API key automatically
+- can also be used for protected asset access
 
 ## Routes
 
-### Pages
+### Public
 
+- `GET /health`
 - `GET /login`
-- `GET /dashboard`
-
-### Auth API
-
+- `GET /dashboard` with valid session
+- `GET /storage/data/:id/:fileName`
 - `POST /api/v1/auth/login`
+
+### Session Auth
+
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
 - `POST /api/v1/auth/change-password`
-- `PATCH /api/v1/auth/users/:id/password`
-
-### User API
-
-Admin only:
-
-- `GET /api/v1/users`
-- `GET /api/v1/users/:id`
-- `POST /api/v1/users`
 
 ### Asset API
 
+Protected asset routes accept:
+- admin session, or
+- `Authorization: Bearer <SECRET_KEY>`, or
+- a user `api_key` where supported
+
 - `POST /api/v1/assets/upload`
-  Requires session login or bearer API key.
 - `GET /api/v1/assets`
-  Public metadata list.
 - `GET /api/v1/assets/:id`
-  Public single asset metadata.
-- `GET /storage/data/:id/:fileName`
-  Public asset file URL.
+- `PATCH /api/v1/assets/:id`
+- `DELETE /api/v1/assets/:id`
+
+### Admin Management API
+
+- `PATCH /api/v1/auth/users/:id/password`
+- `GET /api/v1/users`
+- `GET /api/v1/users/:id`
+- `POST /api/v1/users`
 
 ## Allowed File Types
 
@@ -129,6 +154,8 @@ Admin only:
   Cookie name for web sessions.
 - `SESSION_DAYS`
   Session lifetime in days.
+- `SECRET_KEY`
+  Temporary bearer token for external asset API integration.
 - `ADMIN_NAME`
   Default admin display name.
 - `ADMIN_EMAIL`
@@ -139,10 +166,12 @@ Admin only:
   Final file storage directory.
 - `STORAGE_TEMP_DIR`
   Temp upload directory for multer.
-- `STORAGE_META_FILE`
-  Optional legacy JSON metadata file used only for one-time migration.
 - `SQLITE_DB_FILE`
   SQLite database path.
+
+## Asset API Examples
+
+See [USES.md](E:/hiren/projects/school/s3/USES.md) for asset-only `curl` examples.
 
 ## License
 

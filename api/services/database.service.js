@@ -1,13 +1,19 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { DatabaseSync } from "node:sqlite";
+import sqlite3 from "sqlite3";
+import { open } from "sqlite";
 import { config } from "../../config.js";
 
 fs.mkdirSync(path.dirname(config.storage.dbFile), { recursive: true });
-const db = new DatabaseSync(config.storage.dbFile);
 
-db.exec(`
+const db = await open({
+  filename: config.storage.dbFile,
+  driver: sqlite3.Database,
+});
+
+await db.exec(`
+  PRAGMA foreign_keys = ON;
   PRAGMA journal_mode = WAL;
 
   CREATE TABLE IF NOT EXISTS users (
@@ -80,79 +86,39 @@ const buildTypeGroup = (mimeType) => {
   return "document";
 };
 
-const ensureDefaultAdmin = () => {
-  const existingAdmin = db
-    .prepare("SELECT id FROM users WHERE email = ? LIMIT 1")
-    .get(config.auth.adminEmail);
+const ensureDefaultAdmin = async () => {
+  const existingAdmin = await db.get(
+    "SELECT id FROM users WHERE email = ? LIMIT 1",
+    [normalizeEmail(config.auth.adminEmail)],
+  );
 
   if (existingAdmin) {
     return;
   }
 
   const timestamp = nowIso();
-  db.prepare(
+  await db.run(
     `
       INSERT INTO users (name, email, password_hash, role, api_key, is_active, created_at, updated_at)
       VALUES (?, ?, ?, 'admin', ?, 1, ?, ?)
     `,
-  ).run(
-    config.auth.adminName,
-    normalizeEmail(config.auth.adminEmail),
-    hashPassword(config.auth.adminPassword),
-    randomToken(24),
-    timestamp,
-    timestamp,
+    [
+      config.auth.adminName,
+      normalizeEmail(config.auth.adminEmail),
+      hashPassword(config.auth.adminPassword),
+      randomToken(24),
+      timestamp,
+      timestamp,
+    ],
   );
 };
 
-const migrateLegacyAssets = () => {
-  if (!fs.existsSync(config.storage.legacyMetaFile)) {
-    return;
-  }
-
-  const countRow = db.prepare("SELECT COUNT(*) as count FROM assets").get();
-  if (countRow?.count) {
-    return;
-  }
-
-  try {
-    const raw = JSON.parse(fs.readFileSync(config.storage.legacyMetaFile, "utf8"));
-    const assets = Array.isArray(raw?.assets) ? raw.assets : [];
-
-    const insert = db.prepare(
-      `
-        INSERT OR IGNORE INTO assets (
-          id, original_name, stored_name, mime_type, type_group, size,
-          relative_path, uploaded_by, uploaded_by_email, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
-      `,
-    );
-
-    for (const asset of assets) {
-      insert.run(
-        asset.id,
-        asset.original_name,
-        asset.stored_name,
-        asset.mime_type,
-        buildTypeGroup(asset.mime_type),
-        asset.size || 0,
-        asset.relative_path,
-        asset.uploaded_by || null,
-        asset.created_at || nowIso(),
-      );
-    }
-  } catch (error) {
-    console.error("Legacy asset migration failed:", error);
-  }
-};
-
-ensureDefaultAdmin();
-migrateLegacyAssets();
+await ensureDefaultAdmin();
 
 export const mapUser = (row) =>
   row
     ? {
-        id: row.id,
+        id: Number(row.id),
         name: row.name,
         email: row.email,
         role: row.role,
@@ -163,17 +129,16 @@ export const mapUser = (row) =>
       }
     : null;
 
-export const createUser = ({ name, email, password, role = "user" }) => {
+export const createUser = async ({ name, email, password, role = "user" }) => {
   const timestamp = nowIso();
   const apiKey = randomToken(24);
-  const result = db
-    .prepare(
-      `
-        INSERT INTO users (name, email, password_hash, role, api_key, is_active, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-      `,
-    )
-    .run(
+
+  const result = await db.run(
+    `
+      INSERT INTO users (name, email, password_hash, role, api_key, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+    `,
+    [
       name.trim(),
       normalizeEmail(email),
       hashPassword(password),
@@ -181,84 +146,85 @@ export const createUser = ({ name, email, password, role = "user" }) => {
       apiKey,
       timestamp,
       timestamp,
-    );
+    ],
+  );
 
-  return getUserById(result.lastInsertRowid);
+  return getUserById(Number(result.lastID));
 };
 
-export const listUsers = () =>
-  db
-    .prepare(
-      `
-        SELECT id, name, email, role, api_key, is_active, created_at, updated_at
-        FROM users
-        ORDER BY created_at DESC
-      `,
-    )
-    .all()
-    .map(mapUser);
+export const listUsers = async () =>
+  (await db.all(
+    `
+      SELECT id, name, email, role, api_key, is_active, created_at, updated_at
+      FROM users
+      ORDER BY created_at DESC
+    `,
+  )).map(mapUser);
 
-export const getUserById = (id) =>
+export const getUserById = async (id) =>
   mapUser(
-    db.prepare(
+    await db.get(
       `
         SELECT id, name, email, role, api_key, is_active, created_at, updated_at
         FROM users
         WHERE id = ?
         LIMIT 1
       `,
-    ).get(id),
+      [id],
+    ),
   );
 
 export const getUserWithPasswordByEmail = (email) =>
-  db
-    .prepare(
-      `
-        SELECT id, name, email, password_hash, role, api_key, is_active, created_at, updated_at
-        FROM users
-        WHERE email = ?
-        LIMIT 1
-      `,
-    )
-    .get(normalizeEmail(email));
+  db.get(
+    `
+      SELECT id, name, email, password_hash, role, api_key, is_active, created_at, updated_at
+      FROM users
+      WHERE email = ?
+      LIMIT 1
+    `,
+    [normalizeEmail(email)],
+  );
 
-export const getUserByApiKey = (apiKey) =>
+export const getUserByApiKey = async (apiKey) =>
   mapUser(
-    db.prepare(
+    await db.get(
       `
         SELECT id, name, email, role, api_key, is_active, created_at, updated_at
         FROM users
         WHERE api_key = ?
         LIMIT 1
       `,
-    ).get(apiKey),
+      [apiKey],
+    ),
   );
 
-export const updateUserPassword = (userId, password) => {
-  db.prepare(
+export const updateUserPassword = async (userId, password) => {
+  await db.run(
     `
       UPDATE users
       SET password_hash = ?, updated_at = ?
       WHERE id = ?
     `,
-  ).run(hashPassword(password), nowIso(), userId);
+    [hashPassword(password), nowIso(), userId],
+  );
 
   return getUserById(userId);
 };
 
-export const createSession = ({ userId, userAgent = "" }) => {
+export const createSession = async ({ userId, userAgent = "" }) => {
   const token = randomToken(32);
   const timestamp = nowIso();
   const expiresAt = new Date(
     Date.now() + config.auth.sessionDays * 24 * 60 * 60 * 1000,
   ).toISOString();
 
-  db.prepare(
+  await db.run(
     `
       INSERT INTO sessions (user_id, token_hash, user_agent, created_at, last_seen_at, expires_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `,
-  ).run(userId, sha256(token), userAgent, timestamp, timestamp, expiresAt);
+    [userId, sha256(token), userAgent, timestamp, timestamp, expiresAt],
+  );
 
   return {
     token,
@@ -266,54 +232,53 @@ export const createSession = ({ userId, userAgent = "" }) => {
   };
 };
 
-export const deleteSession = (token) => {
-  db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(token));
-};
+export const deleteSession = (token) =>
+  db.run("DELETE FROM sessions WHERE token_hash = ?", [sha256(token)]);
 
-export const getSessionUser = (token) => {
+export const getSessionUser = async (token) => {
   if (!token) return null;
 
-  const row = db
-    .prepare(
-      `
-        SELECT
-          sessions.id as session_id,
-          sessions.expires_at,
-          users.id,
-          users.name,
-          users.email,
-          users.role,
-          users.api_key,
-          users.is_active,
-          users.created_at,
-          users.updated_at
-        FROM sessions
-        INNER JOIN users ON users.id = sessions.user_id
-        WHERE sessions.token_hash = ?
-        LIMIT 1
-      `,
-    )
-    .get(sha256(token));
+  const row = await db.get(
+    `
+      SELECT
+        sessions.id as session_id,
+        sessions.expires_at,
+        users.id,
+        users.name,
+        users.email,
+        users.role,
+        users.api_key,
+        users.is_active,
+        users.created_at,
+        users.updated_at
+      FROM sessions
+      INNER JOIN users ON users.id = sessions.user_id
+      WHERE sessions.token_hash = ?
+      LIMIT 1
+    `,
+    [sha256(token)],
+  );
 
   if (!row) return null;
   if (new Date(row.expires_at) <= new Date()) {
-    db.prepare("DELETE FROM sessions WHERE id = ?").run(row.session_id);
+    await db.run("DELETE FROM sessions WHERE id = ?", [row.session_id]);
     return null;
   }
 
-  db.prepare(
+  await db.run(
     `
       UPDATE sessions
       SET last_seen_at = ?
       WHERE id = ?
     `,
-  ).run(nowIso(), row.session_id);
+    [nowIso(), row.session_id],
+  );
 
   return mapUser(row);
 };
 
-export const validateUserPassword = (email, password) => {
-  const user = getUserWithPasswordByEmail(email);
+export const validateUserPassword = async (email, password) => {
+  const user = await getUserWithPasswordByEmail(email);
   if (!user || !user.is_active) {
     return null;
   }
@@ -325,7 +290,7 @@ export const validateUserPassword = (email, password) => {
   return mapUser(user);
 };
 
-export const createAsset = ({
+export const createAsset = async ({
   id,
   originalName,
   storedName,
@@ -337,7 +302,7 @@ export const createAsset = ({
 }) => {
   const timestamp = nowIso();
 
-  db.prepare(
+  await db.run(
     `
       INSERT INTO assets (
         id, original_name, stored_name, mime_type, type_group, size,
@@ -345,41 +310,55 @@ export const createAsset = ({
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
-  ).run(
-    id,
-    originalName,
-    storedName,
-    mimeType,
-    buildTypeGroup(mimeType),
-    size,
-    relativePath,
-    uploadedBy || null,
-    uploadedByEmail || null,
-    timestamp,
+    [
+      id,
+      originalName,
+      storedName,
+      mimeType,
+      buildTypeGroup(mimeType),
+      size,
+      relativePath,
+      uploadedBy || null,
+      uploadedByEmail || null,
+      timestamp,
+    ],
   );
 
   return getAssetById(id);
 };
 
+export const updateAsset = async ({ id, originalName }) => {
+  await db.run(
+    `
+      UPDATE assets
+      SET original_name = ?
+      WHERE id = ?
+    `,
+    [originalName, id],
+  );
+
+  return getAssetById(id);
+};
+
+export const deleteAsset = (id) =>
+  db.run("DELETE FROM assets WHERE id = ?", [id]);
+
 export const getAssetById = (id) =>
-  db
-    .prepare(
-      `
-        SELECT *
-        FROM assets
-        WHERE id = ?
-        LIMIT 1
-      `,
-    )
-    .get(id);
+  db.get(
+    `
+      SELECT *
+      FROM assets
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [id],
+  );
 
 export const listAssets = () =>
-  db
-    .prepare(
-      `
-        SELECT *
-        FROM assets
-        ORDER BY created_at DESC
-      `,
-    )
-    .all();
+  db.all(
+    `
+      SELECT *
+      FROM assets
+      ORDER BY created_at DESC
+    `,
+  );

@@ -13,7 +13,7 @@ const sessionCookie = (token) =>
 const clearSessionCookie = () =>
   `${config.auth.sessionCookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 
-export const login = (req, res) => {
+export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -23,14 +23,14 @@ export const login = (req, res) => {
       });
     }
 
-    const user = validateUserPassword(email, password);
+    const user = await validateUserPassword(email, password);
     if (!user) {
       return res.status(401).json({
         message: "Invalid email or password.",
       });
     }
 
-    const session = createSession({
+    const session = await createSession({
       userId: user.id,
       userAgent: req.headers["user-agent"] || "",
     });
@@ -49,10 +49,10 @@ export const login = (req, res) => {
   }
 };
 
-export const logout = (req, res) => {
+export const logout = async (req, res) => {
   try {
     if (req.sessionToken) {
-      deleteSession(req.sessionToken);
+      await deleteSession(req.sessionToken);
     }
 
     res.setHeader("Set-Cookie", clearSessionCookie());
@@ -77,7 +77,7 @@ export const me = (req, res) => {
   });
 };
 
-export const changePassword = (req, res) => {
+export const changePassword = async (req, res) => {
   try {
     const { current_password, new_password } = req.body;
 
@@ -97,14 +97,17 @@ export const changePassword = (req, res) => {
       });
     }
 
-    const validUser = validateUserPassword(req.sessionUser.email, current_password);
+    const validUser = await validateUserPassword(
+      req.sessionUser.email,
+      current_password,
+    );
     if (!validUser) {
       return res.status(400).json({
         message: "Current password is incorrect.",
       });
     }
 
-    const user = updateUserPassword(req.sessionUser.id, new_password);
+    const user = await updateUserPassword(req.sessionUser.id, new_password);
 
     return res.status(200).json({
       message: "Password changed successfully.",
@@ -116,7 +119,7 @@ export const changePassword = (req, res) => {
   }
 };
 
-export const adminResetPassword = (req, res) => {
+export const adminResetPassword = async (req, res) => {
   try {
     const { id } = req.params;
     const { new_password } = req.body;
@@ -127,12 +130,12 @@ export const adminResetPassword = (req, res) => {
       });
     }
 
-    const existingUser = getUserById(parseInt(id, 10));
+    const existingUser = await getUserById(parseInt(id, 10));
     if (!existingUser) {
       return res.status(404).json({ message: "User not found." });
     }
 
-    const user = updateUserPassword(existingUser.id, new_password);
+    const user = await updateUserPassword(existingUser.id, new_password);
 
     return res.status(200).json({
       message: "User password updated successfully.",

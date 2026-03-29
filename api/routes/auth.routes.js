@@ -7,7 +7,7 @@ import {
   me,
 } from "../controller/auth.controller.js";
 import {
-  adminSessionRequired,
+  adminApiOrSessionRequired,
   sessionOptional,
   sessionRequired,
 } from "../middleware/auth.middleware.js";
@@ -18,6 +18,6 @@ router.post("/login", login);
 router.post("/logout", sessionOptional, logout);
 router.get("/me", sessionOptional, me);
 router.post("/change-password", sessionRequired, changePassword);
-router.patch("/users/:id/password", adminSessionRequired, adminResetPassword);
+router.patch("/users/:id/password", adminApiOrSessionRequired, adminResetPassword);
 
 export default router;

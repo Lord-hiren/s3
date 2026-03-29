@@ -1,10 +1,10 @@
 import { createUser, getUserById, listUsers } from "../services/database.service.js";
 
-export const getUsers = (_req, res) => {
+export const getUsers = async (_req, res) => {
   try {
     return res.status(200).json({
       message: "Users retrieved successfully.",
-      data: listUsers(),
+      data: await listUsers(),
     });
   } catch (error) {
     console.error("Get users error:", error);
@@ -12,7 +12,7 @@ export const getUsers = (_req, res) => {
   }
 };
 
-export const addUser = (req, res) => {
+export const addUser = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
     const normalizedRole = role === "admin" ? "admin" : "user";
@@ -29,7 +29,7 @@ export const addUser = (req, res) => {
       });
     }
 
-    const user = createUser({
+    const user = await createUser({
       name,
       email,
       password,
@@ -41,7 +41,7 @@ export const addUser = (req, res) => {
       data: user,
     });
   } catch (error) {
-    if (String(error?.message || "").includes("UNIQUE")) {
+    if (String(error?.message || "").includes("SQLITE_CONSTRAINT")) {
       return res.status(409).json({ message: "Email already exists." });
     }
 
@@ -50,9 +50,9 @@ export const addUser = (req, res) => {
   }
 };
 
-export const getUser = (req, res) => {
+export const getUser = async (req, res) => {
   try {
-    const user = getUserById(parseInt(req.params.id, 10));
+    const user = await getUserById(parseInt(req.params.id, 10));
     if (!user) {
       return res.status(404).json({ message: "User not found." });
     }

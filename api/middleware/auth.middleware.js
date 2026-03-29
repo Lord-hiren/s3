@@ -13,7 +13,45 @@ const parseCookies = (cookieHeader = "") =>
     return acc;
   }, {});
 
-export const sessionOptional = (req, _res, next) => {
+const getBearerToken = (authHeader = "") => {
+  if (!authHeader.startsWith("Bearer ")) {
+    return "";
+  }
+
+  return authHeader.slice(7).trim();
+};
+
+const buildSecretAuthUser = () => ({
+  id: null,
+  name: "Secret Key",
+  email: "secret@s3.local",
+  role: "admin",
+  api_key: null,
+  is_active: true,
+  created_at: null,
+  updated_at: null,
+  is_secret_key: true,
+});
+
+const resolveBearerAuthUser = async (authHeader = "") => {
+  const token = getBearerToken(authHeader);
+  if (!token) {
+    return null;
+  }
+
+  if (token === config.auth.secretKey) {
+    return buildSecretAuthUser();
+  }
+
+  const user = await getUserByApiKey(token);
+  if (!user || !user.is_active) {
+    return null;
+  }
+
+  return user;
+};
+
+export const sessionOptional = async (req, _res, next) => {
   const cookies = parseCookies(req.headers.cookie || "");
   const sessionToken = cookies[config.auth.sessionCookieName];
 
@@ -22,9 +60,9 @@ export const sessionOptional = (req, _res, next) => {
     return next();
   }
 
-  const user = getSessionUser(sessionToken);
+  const user = await getSessionUser(sessionToken);
   if (!user) {
-    deleteSession(sessionToken);
+    await deleteSession(sessionToken);
     req.sessionUser = null;
     return next();
   }
@@ -59,25 +97,16 @@ export const adminSessionRequired = (req, res, next) => {
 };
 
 export const apiKeyOrSessionAuth = (req, res, next) => {
-  sessionOptional(req, res, () => {
+  sessionOptional(req, res, async () => {
     if (req.sessionUser) {
       req.authUser = req.sessionUser;
       return next();
     }
 
-    const authHeader = req.headers.authorization || "";
-    if (!authHeader.startsWith("Bearer ")) {
+    const user = await resolveBearerAuthUser(req.headers.authorization || "");
+    if (!user) {
       return res.status(401).json({
-        message: "Access denied. Session or bearer API key is required.",
-      });
-    }
-
-    const apiKey = authHeader.slice(7).trim();
-    const user = getUserByApiKey(apiKey);
-
-    if (!user || !user.is_active) {
-      return res.status(401).json({
-        message: "Invalid API key.",
+        message: "Access denied. Session or bearer secret/API key is required.",
       });
     }
 

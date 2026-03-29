@@ -4,8 +4,10 @@ import crypto from "crypto";
 import { config } from "../../config.js";
 import {
   createAsset,
+  deleteAsset as deleteAssetRowById,
   getAssetById as getAssetRowById,
   listAssets as listAssetRows,
+  updateAsset as updateAssetRowById,
 } from "./database.service.js";
 
 const ensureDirectory = (targetPath) => {
@@ -52,7 +54,7 @@ const mapAsset = (asset) =>
       }
     : null;
 
-export const createAssetRecord = ({ file, uploadedBy }) => {
+export const createAssetRecord = async ({ file, uploadedBy }) => {
   const id = crypto.randomUUID();
   const ext = path.extname(file.originalname || "");
   const storedFileName = `${id}${ext}`;
@@ -63,7 +65,7 @@ export const createAssetRecord = ({ file, uploadedBy }) => {
   fs.renameSync(file.path, finalPath);
 
   return mapAsset(
-    createAsset({
+    await createAsset({
       id,
       originalName: file.originalname,
       storedName: storedFileName,
@@ -76,6 +78,34 @@ export const createAssetRecord = ({ file, uploadedBy }) => {
   );
 };
 
-export const getAssetById = (id) => mapAsset(getAssetRowById(id));
+export const getAssetById = async (id) => mapAsset(await getAssetRowById(id));
 
-export const listAssets = () => listAssetRows().map(mapAsset);
+export const listAssets = async () => (await listAssetRows()).map(mapAsset);
+
+export const updateAssetRecord = async ({ id, originalName }) => {
+  const nextName = String(originalName || "").trim();
+  if (!nextName) {
+    throw new Error("Original name is required.");
+  }
+
+  return mapAsset(
+    await updateAssetRowById({
+      id,
+      originalName: nextName,
+    }),
+  );
+};
+
+export const deleteAssetRecord = async (id) => {
+  const asset = await getAssetById(id);
+  if (!asset) {
+    return null;
+  }
+
+  if (asset.absolute_path && fs.existsSync(asset.absolute_path)) {
+    fs.unlinkSync(asset.absolute_path);
+  }
+
+  await deleteAssetRowById(id);
+  return asset;
+};
