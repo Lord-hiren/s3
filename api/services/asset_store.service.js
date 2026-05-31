@@ -27,7 +27,43 @@ const allowedMimeTypes = new Set([
   "video/quicktime",
 ]);
 
+const allowedInstallerExtensions = new Set([
+  ".apk",
+  ".aab",
+  ".exe",
+  ".msi",
+  ".appimage",
+  ".deb",
+  ".dmg",
+  ".pkg",
+  ".ipa",
+  ".zip",
+]);
+
+const allowedInstallerMimeTypes = new Set([
+  "application/octet-stream",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/vnd.android.package-archive",
+  "application/vnd.debian.binary-package",
+  "application/x-debian-package",
+  "application/x-msdownload",
+  "application/x-msi",
+  "application/x-apple-diskimage",
+  "application/vnd.microsoft.portable-executable",
+]);
+
 export const isAllowedMimeType = (mimeType) => allowedMimeTypes.has(mimeType);
+
+export const isAllowedUploadFile = (file = {}) => {
+  if (isAllowedMimeType(file.mimetype)) return true;
+
+  const extension = path.extname(file.originalname || "").toLowerCase();
+  return (
+    allowedInstallerExtensions.has(extension) &&
+    (!file.mimetype || allowedInstallerMimeTypes.has(file.mimetype))
+  );
+};
 
 const slugifyFileName = (name) =>
   (name || "file")

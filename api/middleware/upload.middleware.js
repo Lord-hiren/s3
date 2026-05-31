@@ -1,7 +1,7 @@
 import fs from "fs";
 import multer from "multer";
 import { config } from "../../config.js";
-import { isAllowedMimeType } from "../services/asset_store.service.js";
+import { isAllowedUploadFile } from "../services/asset_store.service.js";
 
 const tempDir = config.storage.tempDir;
 fs.mkdirSync(tempDir, { recursive: true });
@@ -15,8 +15,12 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (_req, file, cb) => {
-  if (!isAllowedMimeType(file.mimetype)) {
-    cb(new Error("Only images, svg, pdf, and video files are allowed."));
+  if (!isAllowedUploadFile(file)) {
+    cb(
+      new Error(
+        "Only images, svg, pdf, video, and app build files are allowed.",
+      ),
+    );
     return;
   }
 
@@ -27,7 +31,7 @@ export const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 100 * 1024 * 1024,
+    fileSize: 750 * 1024 * 1024,
     files: 10,
   },
 });
